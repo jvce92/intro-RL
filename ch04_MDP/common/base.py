@@ -51,7 +51,7 @@ class MDP(ABC):
 			
 			if self.verbose:
 				print("* {0:^16} * {1:^17} * {2:^17} * {3:^17.4f} *".format(
-					"({0},{1})".format(cur_state[0], cur_state[1]), 
+					str(cur_state), 
 					old_action, best_action, best_val))
 			
 			if best_action != old_action:
@@ -83,7 +83,6 @@ class MDP(ABC):
 					best_action = action
 					best_val = cur_val
 			self.value_state[state] = best_val
-			self.policy[state] = best_action
 			delta = max(delta, np.abs(old_val - best_val))
 			it += 1
 
@@ -137,6 +136,18 @@ class MDP(ABC):
 
 				if delta < self.eps:
 					break
+
+			if self.verbose:
+				print("="*80)
+				print("Finding optimal policy")
+				print("*"*80)
+				print("* {0:^16} * {1:^17} * {2:^17} * {3:^17} *".format("State", 
+																		 "Old Action",
+																		 "New Action",
+																		 "Best Value"))
+				print("*"*80)
+
+			self.sync_improve_policy()
 
 
 	@abstractmethod
