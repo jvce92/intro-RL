@@ -43,6 +43,7 @@ class Card:
             else:
                 return self.value + 1
 
+
         return self.value + other_card.value
 
     def __add__(self, int_val):
@@ -68,4 +69,18 @@ class InfiniteDeck:
         return Card(np.random.choice(CARDS, replace=False, p=self.prob_card), 
                     np.random.choice(SUITS, replace=False, p=self.prob_suit))
 
-    
+def card_sum(cards):
+    csum = 0;
+    aces = []
+    for i, card in enumerate(cards):
+        if card.card == "Ace":
+            aces.append(i)
+            continue
+
+        csum += card
+
+    for idx in aces:
+        csum = cards[idx] + csum
+
+    return csum
+

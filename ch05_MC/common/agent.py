@@ -16,6 +16,22 @@ class Agent(ABC):
     def load_policy(self, _policy):
         self.policy = _policy
 
+    def evaluate_episode(self, episode):
+        G = 0
+        prev_states = []
+        for i, step in enumerate(episode):
+            s, a, r = step
+            s = self._internal_representation(s)
+            G += r
+            
+            if s not in prev_states:
+                if s not in self.returns.keys():
+                    self.returns[s] = []
+
+                self.returns[s].append(G)
+                self.value_state[s] = np.mean(self.returns[s])
+                prev_states.append(s)
+
     @abstractmethod
     def _internal_representation(self, state):
         pass

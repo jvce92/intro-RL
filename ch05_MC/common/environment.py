@@ -11,10 +11,13 @@ class Environment(ABC):
     def get_state(self):
         return self.cur_state
 
-    def get_reward(self, agent, action):
+    def get_reward(self, agent, action=None):
         self.last_state = self.cur_state
-        self._transition(agent, action)
-        reward = self._reward(agent, action)
+
+        if action is not None:
+            self._transition(agent, action)
+
+        reward = self._reward(agent)
         return reward    
 
     @abstractmethod
