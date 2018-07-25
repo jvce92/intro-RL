@@ -1,373 +1,206 @@
-from common import Agent, Environment, Policy, CARDS, SUITS, VALUES, InfiniteDeck, card_sum
-from itertools import product
-import numpy as np
-from copy import deepcopy
+from random import choice, seed
+from statistics import mean
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import pyplot as plt
+from sys import argv
+import json
+
+CARDS = ["Ace", "2", 
+		 "3", "4", "5", 
+		 "6", "7", "8", 
+		 "9", "10", "Jack", 
+		 "Queen", "King"]
+
+CARD_VALUE = {"Ace":1,
+			  "2":2, 
+		 	  "3":3, 
+		 	  "4":4, 
+		 	  "5":5, 
+		 	  "6":6, 
+		 	  "7":7, 
+		 	  "8":8, 
+		 	  "9":9, 
+		 	  "10":10, 
+		 	  "Jack":10, 
+		 	  "Queen":10, 
+		 	  "King":10}
 
 ACTIONS = ["Hit", "Stick"]
-TERMINAL_STATES = ["Draw", "PlayerWin", "DealerWin"]
-
-class House(Environment):
-    def __init__(self):
-        self.deck = InfiniteDeck()
-        self.player_idx = 0
-        self.dealer_idx = 1
-        self.draw = 0
-        self.pl_win = 1
-        self.dl_win = 2
-        self.card_sum = [None, None]
-        self.last_action = [None, None]
-        super().__init__(ACTIONS)
-
-    def restart(self):
-        self.card_sum = [None, None]
-        self.last_action = [None, None]
-        self.last_state = None
-        self.cur_state = self._get_initial_state()
-
-    def draw_hand(self):
-        return [self.deck.draw_card() for i in range(2)]
-
-    def _get_initial_state(self):
-        init_state = (self.draw_hand(), self.draw_hand())
-        self.card_sum[self.player_idx] = sum(init_state[self.player_idx])
-        self.card_sum[self.dealer_idx] = sum(init_state[self.dealer_idx])
-
-        return init_state 
-
-    def _transition(self, agent, action):
-        if isinstance(agent, Player):
-            if action == "Hit":
-                new_card = self.deck.draw_card()
-                self.cur_state[self.player_idx].append(new_card)
-                self.last_action[self.player_idx] = "Hit"
-                self.card_sum[self.player_idx] = card_sum(self.cur_state[self.player_idx])
-                self.check_results()
-            
-            elif action == "Stick":
-                self.last_action[self.player_idx] = "Stick"
-                self.check_results()
-
-            else:
-                raise ValueError("The action must be either 'Hit' or 'Stick'")
-
-        elif isinstance(agent, Dealer):
-            if action == "Hit":
-                new_card = self.deck.draw_card()
-                self.cur_state[self.dealer_idx].append(new_card)
-                self.last_action[self.dealer_idx] = "Hit"
-                self.card_sum[self.dealer_idx] = card_sum(self.cur_state[self.player_idx])
-                self.check_results()
-                
-            elif action == "Stick":
-                self.last_action[self.dealer_idx] = "Stick"
-                self.check_results()
-
-            else:
-                raise ValueError("The action must be either 'Hit' or 'Stick'")
-
-        else:
-            raise ValueError("The action should be take by a Player or Dealer")
-
-    def check_results(self):
-        if self.card_sum[self.player_idx] > 21:
-            self.cur_state = "DealerWin"
-            
-        if self.card_sum[self.dealer_idx] > 21:
-            self.cur_state = "PlayerWin"
-            
-        if self.last_action[self.player_idx] == "Stick" and self.last_action[self.dealer_idx] == "Stick":
-            if self.card_sum[self.player_idx] > self.card_sum[self.dealer_idx]:
-                self.cur_state = "PlayerWin"
-                
-            elif self.card_sum[self.player_idx] < self.card_sum[self.dealer_idx]:
-                self.cur_state = "DealerWin"
-                
-            else:
-                self.cur_state= "Draw"
-
-    def _reward(self, agent):
-        if isinstance(agent, Player):
-            if self.cur_state == "PlayerWin":
-                return 1
-
-            if self.cur_state == "DealerWin":
-                return -1
-
-            return 0
-        
-        if isinstance(agent, Dealer):
-            if self.cur_state == "PlayerWin":
-                return -1
-
-            if self.cur_state == "DealerWin":
-                return 1
-
-            return 0
-
-        else:
-            raise ValueError("The action should be take by a Player or Dealer")
-
-    def get_state(self, agent):
-        if isinstance(agent, Player):
-            if self.cur_state in TERMINAL_STATES:
-                return self.cur_state
-
-            return (self.cur_state[self.player_idx], self.cur_state[self.dealer_idx][0]) 
-        
-        elif isinstance(agent, Dealer):
-            if self.cur_state in TERMINAL_STATES:
-                return self.cur_state
-
-            return self.cur_state
-
-        else:
-            raise ValueError("The agent should be either a Player or a Dealer")
-
-
-    def __repr__(self):
-        if self.cur_state == "Draw":
-            hands = "Player's Hand: {0} \nDealer's Hand: {1}".format(self.last_state[self.player_idx], self.last_state[self.dealer_idx])
-            return hands + "\nThe game was a draw"
-        if self.cur_state == "PlayerWin":
-            hands = "Player's Hand: {0} \nDealer's Hand: {1}".format(self.last_state[self.player_idx], self.last_state[self.dealer_idx])
-            return hands + "\nThe Player Won"
-        if self.cur_state == "DealerWin":
-            hands = "Player's Hand: {0} \nDealer's Hand: {1}".format(self.last_state[self.player_idx], self.last_state[self.dealer_idx])
-            return hands + "\nThe Dealer Won"
-
-        return  "Player's Hand: {0} \nDealer's Hand: {1}".format(self.cur_state[self.player_idx], self.cur_state[self.dealer_idx])
-
-
-class Player(Agent):
-    def __init__(self, policy, verbose=False):
-        super().__init__(policy, TERMINAL_STATES, verbose)
-        self.value_state["UsableAce"] = {}
-        self.value_state["NoUsableAce"] = {}
-        self.returns["UsableAce"] = {}
-        self.returns["NoUsableAce"] = {}
-
-    def _is_ace_usable(self, hand):
-        hand_sum = 0
-        aces = False
-
-        for card in hand:
-            if card.card == "Ace":
-                aces = True
-                continue
-
-            hand_sum = hand_sum + card
-
-        return (hand_sum < 11) and aces
-
-    def _internal_representation(self, state):
-        s = ["NoUsableAce", (card_sum(state[0]), card_sum([state[1]]))]
-
-        if self._is_ace_usable(state[0]):
-            s[0] = "UsableAce"
-
-        return s
-
-    def evaluate_episode(self, episode):
-        G = 0
-        prev_states = []
-        for i, step in enumerate(episode):
-            s, a, r = step
-            s = self._internal_representation(s)
-            G += r
-            
-            if self.policy.is_trainable:
-                if (s, a) not in prev_states:
-                    if (s[1], a) not in self.returns[s[0]].keys():
-                        self.returns[s[0]][(s[1], a)] = []
-
-                    # print(s)
-
-                    self.returns[s[0]][(s[1], a)].append(G)
-                    self.value_state[s[0]][(s[1], a)] = np.mean(self.returns[s[0]][(s[1], a)])
-                    
-                    if s[1] in self.policy.policy[s[0]].keys():
-                        best_action = a
-                        best_return = self.value_state[s[0]][(s[1], a)]
-                        for a in self.policy.actions:
-                            if (s, a) not in self.value_state[s[0]].keys():
-                                continue
-
-                            if self.value_state[s[0]][(s[1], a)] > best_return:
-                                self.policy.policy[s[0]][s[1]] = a
-                                best_return = self.value_state[s[0]][(s[1], a)]
-                    else:
-                        self.policy.policy[s[0]][s[1]] = a
-
-                    prev_states.append((s, a))
-
-            else:
-                if s not in prev_states:
-                    if s[1] not in self.returns[s[0]].keys():
-                        self.returns[s[0]][s[1]] = []
-
-                    # print(s)
-
-                    self.returns[s[0]][s[1]].append(G)
-                    self.value_state[s[0]][s[1]] = np.mean(self.returns[s[0]][s[1]])
-                    prev_states.append(s)
-
-    def plot_value_state(self):
-        fig_use = plt.figure(figsize=(12,9))
-        ax_use = fig_use.gca(projection='3d')
-
-        x_use, y_use = list(zip(*self.value_state["UsableAce"].keys()))
-        vals_use = []
-
-        for xi_use, yi_use in zip(x_use, y_use):
-            vals_use.append(self.value_state["UsableAce"][(xi_use, yi_use)])
-
-        surf_use = ax_use.scatter(x_use, y_use, vals_use)
-        ax_use.view_init(30, -80)
-        ax_use.set_xlabel("Player's Hand", size=18)
-        ax_use.set_xlim(12, 21)
-        ax_use.set_ylabel("Dealer's Hand", size=18)
-        ax_use.set_ylim(0, 11)
-        ax_use.set_zlabel("Expected Return", size=18)
-        ax_use.set_zlim(-1, 1)
-        ax_use.set_title("Usable Ace", size=20)
-
-        fig_not_use = plt.figure(figsize=(12,9))
-        ax_not_use = fig_not_use.gca(projection='3d')
-
-        x_not_use, y_not_use = list(zip(*self.value_state["UsableAce"].keys()))
-        vals_not_use = []
-
-        for xi_not_use, yi_not_use in zip(x_not_use, y_not_use):
-            vals_not_use.append(self.value_state["UsableAce"][(xi_not_use, yi_not_use)])
-
-        surf_not_use = ax_not_use.scatter(x_not_use, y_not_use, vals_not_use)
-        ax_not_use.view_init(30, -80)
-        ax_not_use.set_xlabel("Player's Hand", size=18)
-        ax_not_use.set_xlim(12, 21)
-        ax_not_use.set_ylabel("Dealer's Hand", size=18)
-        ax_not_use.set_ylim(0, 11)
-        ax_not_use.set_zlabel("Expected Return", size=18)
-        ax_not_use.set_zlim(-1, 1)
-        ax_not_use.set_title("No Usable Ace", size=20)
-
-        plt.show()
-
-
-class Dealer(Agent):
-    def __init__(self, policy, verbose=False):
-        super().__init__(policy, TERMINAL_STATES, verbose)
-
-    def _internal_representation(self, state):
-        return (card_sum(state[0]), card_sum(state[1]))
-
-class AlwaysStick(Policy):
-    def __init__(self):
-        self.hit = 0
-        self.stick = 1
-        super().__init__(ACTIONS)
-
-    def get_action(self, state):
-        return self.actions[self.stick]
-
-class FixedPolicy(Policy):
-    def __init__(self):
-        self.hit = 0
-        self.stick = 1
-        super().__init__(ACTIONS)
-
-    def get_action(self, state):
-        if sum(state[0]) >= 20:
-            return self.actions[self.stick]
-
-        return self.actions[self.hit]
-
-class ESPolicy(Policy):
-    def __init__(self):
-        self.hit = 0
-        self.stick = 1
-        super().__init__(ACTIONS)
-        self.policy["UsableAce"] = {}
-        self.policy["NoUsableAce"] = {}
-        self.is_trainable = True
-
-    def _is_ace_usable(self, hand):
-        hand_sum = 0
-        aces = False
-
-        for card in hand:
-            if card.card == "Ace":
-                aces = True
-                continue
-
-            hand_sum = hand_sum + card
-
-        return (hand_sum < 11) and aces
-
-    def get_action(self, state):
-        if self._is_ace_usable(state[0]):
-            return self.policy["UsableAce"][]
-
-def evaluate(player, dealer, house, epochs, verbose=False):
-    assert(isinstance(house, House))
-    assert(isinstance(player, Player))
-    assert(isinstance(dealer, Dealer))
-
-    for e in range(epochs):
-        if verbose:
-            print("="*60)
-            print("Game #{0} \nPlayer's Turn".format(e))
-
-        house.restart()
-        episode = []
-
-        dealers_turn = False
-        
-        while True:
-            if not dealers_turn:
-                s_player = deepcopy(house.get_state(player))
-
-                if verbose:
-                    print(house)
-
-                if s_player in TERMINAL_STATES:
-                    break
-
-                a_player = player.policy.get_action(s_player)
-                r_player = house.get_reward(player, a_player)
-
-                if verbose:
-                    print("Player's action : {0}".format(a_player))
-
-                if a_player == "Stick":
-                    dealers_turn = True
-                    if verbose:
-                        print("\n***Dealer's Turn***\n")
-                    continue
-
-                if (r_player != 0):
-                    episode.append((s_player, a_player, r_player))
-            else:
-                s_dealer = deepcopy(house.get_state(dealer))
-
-                if verbose:
-                    print(house)
-
-                if s_dealer in TERMINAL_STATES:
-                    r_player = house.get_reward(player)
-                    episode.append((s_player, a_player, r_player))
-                    break
-
-                a_dealer = dealer.policy.get_action(s_dealer)
-                r_dealer = house.get_reward(dealer, a_dealer)
-
-                if verbose:
-                    print("Dealer's action : {0}".format(a_dealer))
-
-            if verbose:
-                print()
-
-        player.evaluate_episode(episode)
 
-
+REWARD = {"Win":1,
+		  "Loss":-1,
+		  "Draw":0}
+
+VERBOSE = True
+
+seed(a=42)
+
+def eval_hand(hand):
+	hand_sum = 0;
+	aces = 0
+	usable_ace = False
+	for card in hand:
+		if card == "Ace":
+			aces += 1
+			continue
+
+		hand_sum += CARD_VALUE[card]
+
+	for i in range(aces):
+		if hand_sum <= 10:
+			hand_sum += 11
+			usable_ace = True
+		else:
+			usable_ace = False
+			hand_sum += 1
+
+
+	return hand_sum, usable_ace
+
+def draw_hands():
+	pl_hand = [choice(CARDS), choice(CARDS)]
+	dl_hand = [choice(CARDS), choice(CARDS)]
+
+	return pl_hand, dl_hand
+
+def check_game(pl_hand, dl_hand):
+	pl_sum, _ = eval_hand(pl_hand)
+	dl_sum, _ = eval_hand(dl_hand)
+
+	if pl_sum > 21:
+		return REWARD["Loss"]
+
+	if dl_sum > 21:
+		return REWARD["Win"]
+
+	if pl_sum == dl_sum:
+		return REWARD["Draw"]
+
+	if pl_sum > dl_sum:
+		return REWARD["Win"]
+	else:
+		return REWARD["Loss"]
+
+	return None
+
+def first_visit_MC_eval(policy, epochs):
+	# occ = {}
+	value_state = {}
+	returns = {}
+	states = []
+	for usable_ace in [True, False]:
+		for pl_hand in range(12, 22):
+			for dl_showing in range(1,11):
+				s = (usable_ace, pl_hand, dl_showing)
+				states.append(s)
+				value_state[s] = 0
+				returns[s] = []
+
+	for ep in range(epochs):
+		a = None
+		pl, dl = draw_hands()
+		r = None
+		steps = []
+		while True:
+			if a is not "Stick":
+				pl_sum, usable_ace = eval_hand(pl)
+				if pl_sum > 21:
+					break
+
+				s = (usable_ace, pl_sum, CARD_VALUE[dl[0]])
+				if pl_sum >= 12:
+					steps.append(s)
+				a = policy(s)
+				if a is "Hit":
+					pl.append(choice(CARDS))
+				
+			else:
+				dl_sum, _ = eval_hand(dl)
+				if dl_sum > 21:
+					break
+
+				if dl_sum < 17:
+					dl.append(choice(CARDS))
+				else:
+					break
+
+		# occ[(pl_sum, CARD_VALUE[dl[0]])] += 1
+		r = check_game(pl, dl)
+		for t, s in enumerate(steps):
+			if s not in steps[:t]:
+				returns[s].append(r)
+				value_state[s] = mean(returns[s])
+
+		if VERBOSE:
+			print("Game #{0}".format(ep+1))
+			print("State {0}".format(s))
+			print("Player Hand {0}".format(pl))
+			print("Dealer Hand {0}".format(dl))
+			print("Reward {0}".format(r))
+			print()
+
+	return value_state, states
+
+def fixed_policy(state, threshold):
+	usable_ace, pl_sum, dl_showing = state
+	if pl_sum >= threshold:
+		return "Stick"
+
+	return "Hit"
+
+def plot_value_state(value_state, states):
+	x, y, z = [], [], []
+	x_usable_ace, y_usable_ace, z_usable_ace = [], [], []
+
+	for s in states:
+		usable_ace, pl_sum, dl_showing = s
+		if usable_ace:
+			x_usable_ace.append(pl_sum)
+			y_usable_ace.append(dl_showing)
+			z_usable_ace.append(value_state[s])
+		else:
+			x.append(pl_sum)
+			y.append(dl_showing)
+			z.append(value_state[s])
+
+	fig = plt.figure(figsize=(12,9))
+	ax = fig.gca(projection='3d')
+	ax.scatter(x, y, z)
+	ax.set_title("No Usable Ace", size=20)
+	ax.set_xlabel("Player Sum", size=18)
+	ax.set_xlim(12, 21)
+	ax.set_ylabel("Dealer Showing", size=18)
+	ax.set_ylim(1, 10)
+	ax.set_zlabel("Expected Profit", size=18)
+	ax.set_zlim(-1, 1)
+	fig.show()
+
+	fig_usable_ace = plt.figure(figsize=(12,9))
+	ax_usable_ace = fig_usable_ace.gca(projection='3d')
+	ax_usable_ace.scatter(x_usable_ace, y_usable_ace, z_usable_ace)
+	ax_usable_ace.set_title("Usable Ace", size=20)
+	ax_usable_ace.set_xlabel("Player Sum", size=18)
+	ax_usable_ace.set_xlim(12, 21)
+	ax_usable_ace.set_ylabel("Dealer Showing", size=18)
+	ax_usable_ace.set_ylim(1, 10)
+	ax_usable_ace.set_zlabel("Expected Profit", size=18)
+	ax_usable_ace.set_zlim(-1, 1)
+	fig_usable_ace.show()
+
+
+if __name__ == "__main__":
+	assert(len(argv) >= 2)
+	epochs = int(argv[1])
+	policy = lambda x: fixed_policy(x, 20)
+	value_state, states = first_visit_MC_eval(policy, epochs)
+	if VERBOSE:
+		value_state_json = {}
+		for key in value_state.keys():
+			value_state_json[str(key)] = value_state[key]
+
+		with open("val_state.log", "w") as f:
+			f.write(json.dumps(value_state_json))
+
+	plot_value_state(value_state, states)
+	input()
+	
