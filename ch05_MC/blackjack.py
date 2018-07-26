@@ -101,16 +101,16 @@ def initialize(init_action_value=False):
 					policy[s] = choice(ACTIONS)
 					for a in ACTIONS:
 						action_value[(s, a)] = 0
-						counts[(s, a)] = 0
+						counts[(s, a)] = 1
 				else:
-					counts[s] = 0
+					counts[s] = 1
 
 	if init_action_value:
 		return action_value, policy, counts, states
 
 	return value_state, counts, states
 
-def play_ep(policy):
+def play_ep(policy, a0):
 	pl, dl = draw_hands()
 	while True:
 		pl_sum, usable_ace = eval_hand(pl)
@@ -118,18 +118,27 @@ def play_ep(policy):
 			break
 		pl.append(choice(CARDS))
 		
-	r = None
 	steps = []
 	actions = []
 	players_turn = True
+	first_play = True
 	while True:
 		if players_turn:
 			pl_sum, usable_ace = eval_hand(pl)
 			if pl_sum > 21:
 				break
 			s = (usable_ace, pl_sum, CARD_VALUE[dl[0]])
+			if pl_sum == 21:
+				steps.append(s)
+				actions.append("Stick")
+				players_turn = False
+				continue
 			steps.append(s)
-			a = policy[s]
+			if a0 is not None and first_play:
+				first_play = False
+				a = a0
+			else:
+				a = policy[s]
 			actions.append(a)
 			if a is "Hit":
 				pl.append(choice(CARDS))
@@ -148,10 +157,11 @@ def play_ep(policy):
 	reward = check_game(pl, dl)
 
 	if VERBOSE:
-		print("State {0}".format(s))
+		print("Steps {0}".format(steps))
+		print("Actions {0}".format(actions))
 		print("Player Hand {0}".format(pl))
 		print("Dealer Hand {0}".format(dl))
-		print("Reward {0}".format(r))
+		print("Reward {0}".format(reward))
 		print()
 
 	return steps, actions, reward
@@ -163,7 +173,7 @@ def first_visit_MC_eval(policy, epochs):
 		if VERBOSE:
 			print("Game #{0}".format(ep+1))
 		
-		steps, _, r = play_ep(policy)
+		steps, _, r = play_ep(policy, None)
 		for t, s in enumerate(steps):
 			if s not in steps[:t]:
 				counts[s] += 1
@@ -177,21 +187,14 @@ def exploring_starts_MC(epochs):
 	for ep in range(epochs):
 		if VERBOSE:
 			print("Game #{0}".format(ep+1))
-		
-		steps, actions, r = play_ep(policy)
+		a0 = choice(ACTIONS)
+		steps, actions, r = play_ep(policy, a0)
 		av_pairs = list(zip(steps, actions))
 		for t, s in enumerate(steps):
 			if (s, actions[t]) not in av_pairs[:t]:
 				counts[(s, actions[t])] += 1
 				action_value[(s, actions[t])] += (1.0/counts[(s, actions[t])]) * (r - action_value[(s, actions[t])])
-				for a in ACTIONS:
-					best_action = None
-					best_value = -2
-					if (s, a) in action_value.keys():
-						if action_value[(s, a)] > best_value:
-							best_value = action_value[(s, a)]
-							best_action = a
-				policy[s] = best_action 
+				policy[s] = "Hit" if action_value[(s, "Hit")] >= action_value[(s, "Stick")] else "Stick" 
 
 	return action_value, policy
 
@@ -208,7 +211,7 @@ def fixed_policy(threshold):
 
 	return policy
 
-def plot_value_state(value_state, states):
+def plot_value_state(value_state, states, title):
 	x, y, z = [], [], []
 	x_usable_ace, y_usable_ace, z_usable_ace = [], [], []
 
@@ -227,7 +230,7 @@ def plot_value_state(value_state, states):
 	ax = fig.gca(projection='3d')
 	# ax.scatter(x, y, z)
 	ax.plot_trisurf(x, y, z, color="red", linewidth=0.1)
-	ax.set_title("No Usable Ace", size=20)
+	ax.set_title(title + " (No Usable Ace)", size=20)
 	ax.set_xlabel("Player Sum", size=18)
 	ax.set_xlim(12, 21)
 	ax.set_ylabel("Dealer Showing", size=18)
@@ -240,7 +243,7 @@ def plot_value_state(value_state, states):
 	ax_usable_ace = fig_usable_ace.gca(projection='3d')
 	# ax_usable_ace.scatter(x_usable_ace, y_usable_ace, z_usable_ace)
 	ax_usable_ace.plot_trisurf(x_usable_ace, y_usable_ace, z_usable_ace, color="red", linewidth=0.1)
-	ax_usable_ace.set_title("Usable Ace", size=20)
+	ax_usable_ace.set_title(title + " (Usable Ace)", size=20)
 	ax_usable_ace.set_xlabel("Player Sum", size=18)
 	ax_usable_ace.set_xlim(12, 21)
 	ax_usable_ace.set_ylabel("Dealer Showing", size=18)
@@ -249,6 +252,50 @@ def plot_value_state(value_state, states):
 	ax_usable_ace.set_zlim(-1, 1)
 	# fig_usable_ace.show()
 
+
+def plot_policy(policy, title):
+	stick_us_x = []
+	stick_us_y = []
+	stick_x = []
+	stick_y = []
+	hit_us_x = []
+	hit_us_y = []
+	hit_x = []
+	hit_y = []
+	for key in policy.keys():
+		if policy[key] == "Hit":
+			if key[0]:
+				hit_us_x.append(key[1])
+				hit_us_y.append(key[2])
+			else:
+				hit_x.append(key[1])
+				hit_y.append(key[2])
+		elif policy[key] == "Stick":
+			if key[0]:
+				stick_us_x.append(key[1])
+				stick_us_y.append(key[2])
+			else:
+				stick_x.append(key[1])
+				stick_y.append(key[2])
+
+	us_fig = plt.figure(figsize=(12,9))
+	fig = plt.figure(figsize=(12,9))
+
+	us_ax = us_fig.add_subplot(111)
+	us_ax.set_title(title + " (Usable Ace)")
+	us_ax.set_ylabel("Player Sum", size=18)
+	us_ax.set_xlabel("Dealer Showing", size=18)
+	us_ax.scatter(hit_us_y, hit_us_x, color='r', label="Hit")
+	us_ax.scatter(stick_us_y, stick_us_x, color='b', label="Stick")
+	us_ax.legend()
+
+	ax = fig.add_subplot(111)
+	ax.set_title(title + " (No Usable Ace)")
+	ax.set_ylabel("Player Sum", size=18)
+	ax.set_xlabel("Dealer Showing", size=18)
+	ax.scatter(hit_y, hit_x, color='r', label="Hit")
+	ax.scatter(stick_y, stick_x, color='b', label="Stick")
+	ax.legend()
 
 if __name__ == "__main__":
 	assert(len(argv) >= 2)
@@ -263,11 +310,12 @@ if __name__ == "__main__":
 		with open("val_state.log", "w") as f:
 			f.write(json.dumps(value_state_json))
 
-	plot_value_state(value_state, states)
+	plot_value_state(value_state, states, "Figure 5.1")
 
 	action_value, policy = exploring_starts_MC(epochs)
-
-	print(policy)
+	value_state, states = first_visit_MC_eval(policy, epochs)
+	plot_value_state(value_state, states, "Figure 5.2")
+	plot_policy(policy, "Figure 5.2")
 
 	plt.show()
 
