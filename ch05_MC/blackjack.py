@@ -2,6 +2,7 @@ from random import choice, seed
 from statistics import mean
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import pyplot as plt
+from matplotlib import cm
 from sys import argv
 import json
 
@@ -83,10 +84,12 @@ def check_game(pl_hand, dl_hand):
 
 	return None
 
-def first_visit_MC_eval(policy, epochs):
-	# occ = {}
+def initialize(init_action_value=False):
 	value_state = {}
-	returns = {}
+	if init_action_value:
+		action_value = {}
+		policy = {}
+	counts = {}
 	states = []
 	for usable_ace in [True, False]:
 		for pl_hand in range(12, 22):
@@ -94,59 +97,116 @@ def first_visit_MC_eval(policy, epochs):
 				s = (usable_ace, pl_hand, dl_showing)
 				states.append(s)
 				value_state[s] = 0
-				returns[s] = []
+				if init_action_value:
+					policy[s] = choice(ACTIONS)
+					for a in ACTIONS:
+						action_value[(s, a)] = 0
+						counts[(s, a)] = 0
+				else:
+					counts[s] = 0
+
+	if init_action_value:
+		return action_value, policy, counts, states
+
+	return value_state, counts, states
+
+def play_ep(policy):
+	pl, dl = draw_hands()
+	while True:
+		pl_sum, usable_ace = eval_hand(pl)
+		if pl_sum >= 12:
+			break
+		pl.append(choice(CARDS))
+		
+	r = None
+	steps = []
+	actions = []
+	players_turn = True
+	while True:
+		if players_turn:
+			pl_sum, usable_ace = eval_hand(pl)
+			if pl_sum > 21:
+				break
+			s = (usable_ace, pl_sum, CARD_VALUE[dl[0]])
+			steps.append(s)
+			a = policy[s]
+			actions.append(a)
+			if a is "Hit":
+				pl.append(choice(CARDS))
+			elif a is "Stick":
+				players_turn = False
+		else:
+			dl_sum, _ = eval_hand(dl)
+			if dl_sum > 21:
+				break
+
+			if dl_sum < 17:
+				dl.append(choice(CARDS))
+			else:
+				break
+
+	reward = check_game(pl, dl)
+
+	if VERBOSE:
+		print("State {0}".format(s))
+		print("Player Hand {0}".format(pl))
+		print("Dealer Hand {0}".format(dl))
+		print("Reward {0}".format(r))
+		print()
+
+	return steps, actions, reward
+
+def first_visit_MC_eval(policy, epochs):
+	value_state, counts, states = initialize()
 
 	for ep in range(epochs):
-		a = None
-		pl, dl = draw_hands()
-		r = None
-		steps = []
-		while True:
-			if a is not "Stick":
-				pl_sum, usable_ace = eval_hand(pl)
-				if pl_sum > 21:
-					break
-
-				s = (usable_ace, pl_sum, CARD_VALUE[dl[0]])
-				if pl_sum >= 12:
-					steps.append(s)
-				a = policy(s)
-				if a is "Hit":
-					pl.append(choice(CARDS))
-				
-			else:
-				dl_sum, _ = eval_hand(dl)
-				if dl_sum > 21:
-					break
-
-				if dl_sum < 17:
-					dl.append(choice(CARDS))
-				else:
-					break
-
-		# occ[(pl_sum, CARD_VALUE[dl[0]])] += 1
-		r = check_game(pl, dl)
-		for t, s in enumerate(steps):
-			if s not in steps[:t]:
-				returns[s].append(r)
-				value_state[s] = mean(returns[s])
-
 		if VERBOSE:
 			print("Game #{0}".format(ep+1))
-			print("State {0}".format(s))
-			print("Player Hand {0}".format(pl))
-			print("Dealer Hand {0}".format(dl))
-			print("Reward {0}".format(r))
-			print()
+		
+		steps, _, r = play_ep(policy)
+		for t, s in enumerate(steps):
+			if s not in steps[:t]:
+				counts[s] += 1
+				value_state[s] += (1.0/counts[s]) * (r - value_state[s])
 
 	return value_state, states
 
-def fixed_policy(state, threshold):
-	usable_ace, pl_sum, dl_showing = state
-	if pl_sum >= threshold:
-		return "Stick"
+def exploring_starts_MC(epochs):
+	action_value, policy, counts, states = initialize(True)
 
-	return "Hit"
+	for ep in range(epochs):
+		if VERBOSE:
+			print("Game #{0}".format(ep+1))
+		
+		steps, actions, r = play_ep(policy)
+		av_pairs = list(zip(steps, actions))
+		for t, s in enumerate(steps):
+			if (s, actions[t]) not in av_pairs[:t]:
+				counts[(s, actions[t])] += 1
+				action_value[(s, actions[t])] += (1.0/counts[(s, actions[t])]) * (r - action_value[(s, actions[t])])
+				for a in ACTIONS:
+					best_action = None
+					best_value = -2
+					if (s, a) in action_value.keys():
+						if action_value[(s, a)] > best_value:
+							best_value = action_value[(s, a)]
+							best_action = a
+				policy[s] = best_action 
+
+	return action_value, policy
+
+def fixed_policy(threshold):
+	policy = {}
+	for usable_ace in [True, False]:
+		for pl_hand in range(12, 22):
+			for dl_showing in range(1,11):
+				s = (usable_ace, pl_hand, dl_showing)
+				if pl_hand >= threshold:
+					policy[s] = "Stick"
+				else:
+					policy[s] = "Hit"
+
+	return policy
 
 def plot_value_state(value_state, states):
 	x, y, z = [], [], []
@@ -165,7 +225,8 @@ def plot_value_state(value_state, states):
 
 	fig = plt.figure(figsize=(12,9))
 	ax = fig.gca(projection='3d')
-	ax.scatter(x, y, z)
+	# ax.scatter(x, y, z)
+	ax.plot_trisurf(x, y, z, color="red", linewidth=0.1)
 	ax.set_title("No Usable Ace", size=20)
 	ax.set_xlabel("Player Sum", size=18)
 	ax.set_xlim(12, 21)
@@ -173,11 +234,12 @@ def plot_value_state(value_state, states):
 	ax.set_ylim(1, 10)
 	ax.set_zlabel("Expected Profit", size=18)
 	ax.set_zlim(-1, 1)
-	fig.show()
+	# fig.show()
 
 	fig_usable_ace = plt.figure(figsize=(12,9))
 	ax_usable_ace = fig_usable_ace.gca(projection='3d')
-	ax_usable_ace.scatter(x_usable_ace, y_usable_ace, z_usable_ace)
+	# ax_usable_ace.scatter(x_usable_ace, y_usable_ace, z_usable_ace)
+	ax_usable_ace.plot_trisurf(x_usable_ace, y_usable_ace, z_usable_ace, color="red", linewidth=0.1)
 	ax_usable_ace.set_title("Usable Ace", size=20)
 	ax_usable_ace.set_xlabel("Player Sum", size=18)
 	ax_usable_ace.set_xlim(12, 21)
@@ -185,13 +247,13 @@ def plot_value_state(value_state, states):
 	ax_usable_ace.set_ylim(1, 10)
 	ax_usable_ace.set_zlabel("Expected Profit", size=18)
 	ax_usable_ace.set_zlim(-1, 1)
-	fig_usable_ace.show()
+	# fig_usable_ace.show()
 
 
 if __name__ == "__main__":
 	assert(len(argv) >= 2)
 	epochs = int(argv[1])
-	policy = lambda x: fixed_policy(x, 20)
+	policy = fixed_policy(20)
 	value_state, states = first_visit_MC_eval(policy, epochs)
 	if VERBOSE:
 		value_state_json = {}
@@ -202,5 +264,10 @@ if __name__ == "__main__":
 			f.write(json.dumps(value_state_json))
 
 	plot_value_state(value_state, states)
-	input()
-	
+
+	action_value, policy = exploring_starts_MC(epochs)
+
+	print(policy)
+
+	plt.show()
+
