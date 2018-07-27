@@ -5,6 +5,7 @@ from matplotlib import pyplot as plt
 from matplotlib import cm
 from sys import argv
 import json
+import numpy as np
 
 CARDS = ["Ace", "2", 
 		 "3", "4", "5", 
@@ -198,6 +199,86 @@ def exploring_starts_MC(epochs):
 
 	return action_value, policy
 
+def play_ep_stochastic_policy(policy):
+	pl, dl = draw_hands()
+	while True:
+		pl_sum, usable_ace = eval_hand(pl)
+		if pl_sum >= 12:
+			break
+		pl.append(choice(CARDS))
+		
+	steps = []
+	actions = []
+	players_turn = True
+	while True:
+		if players_turn:
+			pl_sum, usable_ace = eval_hand(pl)
+			if pl_sum > 21:
+				break
+			s = (usable_ace, pl_sum, CARD_VALUE[dl[0]])
+			if pl_sum == 21:
+				steps.append(s)
+				actions.append("Stick")
+				players_turn = False
+				continue
+			steps.append(s)
+			print(policy[s])
+			a = np.random.choice(ACTIONS, p=policy[s])
+			actions.append(a)
+			if a == "Hit":
+				pl.append(choice(CARDS))
+			elif a == "Stick":
+				players_turn = False
+		else:
+			dl_sum, _ = eval_hand(dl)
+			if dl_sum > 21:
+				break
+
+			if dl_sum < 17:
+				dl.append(choice(CARDS))
+			else:
+				break
+
+	reward = check_game(pl, dl)
+
+	if VERBOSE:
+		print("Steps {0}".format(steps))
+		print("Actions {0}".format(actions))
+		print("Player Hand {0}".format(pl))
+		print("Dealer Hand {0}".format(dl))
+		print("Reward {0}".format(reward))
+		print()
+
+	return steps, actions, reward
+
+def off_policy_MC(epochs, gamma):
+	behavior_policy = {}
+	counts = {}
+	for pl_sum in range(12, 22):
+		for dl_showing in range(1, 11):
+			for usable_ace in [False, True]:
+				s = (usable_ace, pl_sum, dl_showing)
+				behavior_policy[s] = [.75, .25]
+				for a in ACTIONS:
+					counts[(s, a)] = 0
+
+	action_value, policy, _, _ = initialize(True)
+
+	for ep in range(epochs):
+		steps, actions, reward = play_ep_stochastic_policy(behavior_policy)
+		G = 0
+		W = 1
+		for t, s in enumerate(steps):
+			G = gamma*G + reward
+			counts[(s, actions[t])] += W
+			action_value[(s, actions[t])] += (W / counts[(s, actions[t])]) * (G - action_value[(s, actions[t])])
+			policy[s] = "Hit" if action_value[(s, "Hit")] >= action_value[(s, "Stick")] else "Stick"
+			if policy[s] != actions[t]:
+				break
+			W *= 1 / behavior_policy[s][ACTIONS.index(actions[t])]
+
+	return action_value, policy
+
 def fixed_policy(threshold):
 	policy = {}
 	for usable_ace in [True, False]:
@@ -316,6 +397,12 @@ if __name__ == "__main__":
 	value_state, states = first_visit_MC_eval(policy, epochs)
 	plot_value_state(value_state, states, "Figure 5.2")
 	plot_policy(policy, "Figure 5.2")
+
+	gamma = 0.9
+	action_value, policy = off_policy_MC(epochs, gamma)
+	value_state, states = first_visit_MC_eval(policy, epochs)
+	plot_value_state(value_state, states, "Off-Policy Blackjack")
+	plot_policy(policy, "Off-Policy Blackjack")
 
 	plt.show()
 
