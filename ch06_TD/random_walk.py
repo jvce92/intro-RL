@@ -37,8 +37,8 @@ def run_episode_TD(value_state, step_size, discount):
 
 def TD0(epochs, step_size, discount):
 	value_state = np.zeros(len(STATES))
-	count = np.zeros(len(STATES))
-
+	value_state[1:6] = 0.5
+	
 	for ep in range(epochs):
 		if VERBOSE:
 			print("Game #{0}".format(ep+1))
