@@ -38,7 +38,7 @@ def run_episode_TD(value_state, step_size, discount):
 def TD0(epochs, step_size, discount):
 	value_state = np.zeros(len(STATES))
 	value_state[1:6] = 0.5
-	
+
 	for ep in range(epochs):
 		if VERBOSE:
 			print("Game #{0}".format(ep+1))
@@ -48,6 +48,60 @@ def TD0(epochs, step_size, discount):
 			print()
 
 	return value_state
+
+def run_episode():
+	s = INITIAL_STATE
+	steps = [s]
+	rewards = []
+
+	while STATES[s] not in TERMINAL_STATES:
+		rewards.append(0)
+		e = choice(EVENTS)
+		if VERBOSE:
+			g = GRAPH[:s*6] + "*" + GRAPH[s*6+1:]
+			print(g)
+			print("Transition: {0}".format(e))
+
+		s = s + EVENTS_MAP[e]
+		steps.append(s)
+		
+
+	if STATES[s] == "END_LEFT":
+		rewards.append(0)
+		return steps, rewards
+
+	rewards.append(1)
+	return steps, rewards
+
+def batch_TD0(epochs, step_size, discount):
+	n_samples = 100
+	true_values = np.zeros(7)
+	true_values[1:6] = np.arange(1, 6) / 6.0
+	true_values[6] = 1
+	rmse_TD = np.zeros(epochs)
+	for samp in range(n_samples):
+		value_state = np.zeros(len(STATES))
+		value_state[1:6] = 0.5
+		value_state[6]= 1
+		steps = []
+		rewards = []
+		for ep in range(100):
+			# print(10*"*" + "{0}% Done".format(100 * ((ep + 1) + epochs * (samp)) / (n_samples * epochs)) + 10*"*")
+			s, r = run_episode()
+			steps.append(s)
+			rewards.append(r)
+			while True:
+				updates = np.zeros(7)
+				for s, r in zip(steps, rewards):
+					for i in range(len(s)-1):
+						updates[s[i]] += r[i] + discount * value_state[s[i+1]] - value_state[s[i]] 
+				updates *= step_size
+				if np.linalg.norm(updates) < 1e-3:
+					break
+				value_state += updates
+			rmse_TD[ep] += np.linalg.norm(value_state - true_values) / (np.sqrt(5) * n_samples)
+
+	return rmse_TD
 
 def plot_value_state(value_state, ax, steps):
 	ax.plot(range(1,6), value_state[1:6], '--ob', lw=2)
@@ -96,5 +150,13 @@ if __name__ == "__main__":
 	ax[1].set_xlabel("Number of Episodes")
 	ax[1].set_ylabel("RMS Error")
 	ax[1].legend()
+
+	fig, ax = plt.subplots()
+	rmse_TD = batch_TD0(100, 0.001, 1)
+	ax.plot(range(1, 101), rmse_TD, lw=2)
+	ax.set_xlabel("Number of Episodes")
+	ax.set_ylabel("RMS Error")
+	ax.set_title("Batch Updating")
+	ax.legend()
 
 	plt.show()
