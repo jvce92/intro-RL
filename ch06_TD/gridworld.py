@@ -23,7 +23,9 @@ TERMINAL_STATE = (7, 3)
 
 def sarsa(action_value, policy, env, step_size, discount, epochs):
 	steps = [0]
+	rewards = []
 	for ep in range(epochs):
+		total_reward = 0
 		s = INITIAL_STATE
 		a = policy(s, action_value)
 		while s != TERMINAL_STATE:
@@ -33,8 +35,10 @@ def sarsa(action_value, policy, env, step_size, discount, epochs):
 			s = next_s
 			a = next_a
 			steps.append(ep)
+			total_reward += r
+		rewards.append(total_reward)
 
-	return action_value, steps
+	return action_value, steps, rewards
 
 def opt_policy(state, action_value, actions):
 	avs = [action_value[(state, a)] for a in actions]
@@ -105,7 +109,7 @@ if __name__ == "__main__":
 			for a in ACTIONS:
 				action_value[((row, col), a)] = 0
 
-	action_value, steps = sarsa(action_value, policy, env, step_size, discount, epochs)
+	action_value, steps, _ = sarsa(action_value, policy, env, step_size, discount, epochs)
 	fig, ax = plt.subplots()
 	ax.plot(steps, lw=2)
 	ax.set_xlabel("Time Steps")
@@ -122,7 +126,7 @@ if __name__ == "__main__":
 			for a in KING_ACTIONS:
 				action_value[((row, col), a)] = 0
 
-	action_value, steps = sarsa(action_value, policy, env, step_size, discount, epochs)
+	action_value, steps, _ = sarsa(action_value, policy, env, step_size, discount, epochs)
 	fig, ax = plt.subplots()
 	ax.plot(steps, lw=2)
 	ax.set_xlabel("Time Steps")
@@ -140,7 +144,7 @@ if __name__ == "__main__":
 			for a in KING_ACTIONS:
 				action_value[((row, col), a)] = 0
 
-	action_value, steps = sarsa(action_value, policy, env, step_size, discount, epochs)
+	action_value, steps, _ = sarsa(action_value, policy, env, step_size, discount, epochs)
 	fig, ax = plt.subplots()
 	ax.plot(steps, lw=2)
 	ax.set_xlabel("Time Steps")
