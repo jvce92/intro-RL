@@ -32,6 +32,28 @@ def q_learn(action_value, policy, env, actions, step_size, discount, epochs):
 
 	return action_value, steps, rewards
 
+def expected_sarsa(action_value, policy, env, actions, eps, step_size, discount, epochs):
+	steps = [0]
+	rewards = []
+	opt_pol = lambda s, avs: opt_policy(s, avs, ACTIONS)
+	for ep in range(epochs):
+		total_reward = 0
+		s = INITIAL_STATE
+		while s != TERMINAL_STATE:
+			a = policy(s, action_value)
+			next_s, r = env(s, a)
+			Q = np.asarray([action_value[(next_s, a)] for a in actions])
+			prob = np.asarray([eps for a in actions])
+			prob[np.argmax(Q)] = 1 - eps
+			avg_Q = np.sum(Q * prob)
+			action_value[(s, a)] += step_size * (r + discount * avg_Q - action_value[(s, a)])
+			s = next_s
+			steps.append(ep)
+			total_reward += r
+		rewards.append(total_reward)
+
+	return action_value, steps, rewards
+
 def cliff_gridworld(state, action):
 	a_val = ACTIONS_MAP[action]
 	next_state = (max(min(state[0]+a_val[0], DIMENSIONS[0]-1), 0), 
@@ -94,15 +116,21 @@ if __name__ == "__main__":
 	sarsa_avs = deepcopy(action_value)
 	q_learn_avs = deepcopy(action_value)
 	vanishing_sarsa_avs = deepcopy(action_value)
+	vanishing_q_learn_avs = deepcopy(action_value)
+	expected_sarsa_avs = deepcopy(action_value)
 
 	sarsa_avs, sarsa_steps, sarsa_rewards = sarsa(sarsa_avs, eps_pol, env, step_size, discount, epochs)
 	vanishing_sarsa_avs, vanishing_sarsa_steps, vanishing_sarsa_rewards = sarsa(vanishing_sarsa_avs, van_eps_pol, env, step_size, discount, epochs)
 	q_learn_avs, q_learn_steps, q_learn_rewards = q_learn(q_learn_avs, eps_pol, env, ACTIONS, step_size, discount, epochs)
+	vanishing_q_learn_avs, vanishing_q_learn_steps, vanishing_q_learn_rewards = q_learn(vanishing_q_learn_avs, van_eps_pol, env, ACTIONS, step_size, discount, epochs)
+	expected_sarsa_avs, expected_sarsa_steps, expected_sarsa_rewards = expected_sarsa(expected_sarsa_avs, eps_pol, env, ACTIONS, eps, step_size, discount, epochs)
 
 	fig, ax = plt.subplots()
-	ax.plot(range(10, epochs), sarsa_rewards[10:epochs], lw=2, label=r" Sarsa ($\epsilon$-greedy)")
+	ax.plot(range(10, epochs), sarsa_rewards[10:epochs], lw=2, c='b', label=r" Sarsa ($\epsilon$-greedy)")
 	ax.plot(range(10, epochs), vanishing_sarsa_rewards[10:epochs], lw=2, c='g', label=r" Sarsa (Vanishing $\epsilon$-greedy)")
 	ax.plot(range(10, epochs), q_learn_rewards[10:epochs], lw=2, c='r', label=r" Q Learning ($\epsilon$-greedy)")
+	ax.plot(range(10, epochs), vanishing_q_learn_rewards[10:epochs], lw=2, c='k', label=r" Q Learning (Vanishing $\epsilon$-greedy)")
+	ax.plot(range(10, epochs), expected_sarsa_rewards[10:epochs], lw=2, c='y', label=r" Expected Sarsa ($\epsilon$-greedy)")
 	ax.set_xlabel("Episodes")
 	ax.set_ylabel("Sum of Rewards")
 	ax.legend()
@@ -110,6 +138,8 @@ if __name__ == "__main__":
 	plot_policy(opt_pol, sarsa_avs, title=r" Sarsa ($\epsilon$-greedy)")
 	plot_policy(opt_pol, vanishing_sarsa_avs, title=r" Sarsa (Vanishing $\epsilon$-greedy)")	
 	plot_policy(opt_pol, q_learn_avs, title=r" Q Learning ($\epsilon$-greedy)")
+	plot_policy(opt_pol, vanishing_q_learn_avs, title=r" Q Learning (Vanishing $\epsilon$-greedy)")
+	plot_policy(opt_pol, expected_sarsa_avs, title=r" Expected Sarsa ($\epsilon$-greedy)")
 
 	plt.show()
 	
